@@ -1,4 +1,4 @@
-package com.indiealexh.jsonrpc.handlers;
+package com.indiealexh.jsonrpc.handlers.echo;
 
 import com.indiealexh.jsonrpc.JsonRpcHandler;
 import io.smallrye.mutiny.Uni;

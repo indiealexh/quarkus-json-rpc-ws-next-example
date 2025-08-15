@@ -1,11 +1,11 @@
-package com.indiealexh.jsonrpc.handlers;
+package com.indiealexh.jsonrpc.handlers.reverse;
 
-public class EchoParams {
+public class ReverseParams {
     private String message;
 
-    public EchoParams() {}
+    public ReverseParams() {}
 
-    public EchoParams(String message) {
+    public ReverseParams(String message) {
         this.message = message;
     }
 

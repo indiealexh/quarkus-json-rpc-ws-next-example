@@ -6,9 +6,9 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.enterprise.inject.Instance;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,8 +23,21 @@ public class JsonRpcRouter {
         // CDI
     }
 
+    /**
+     * Convenience constructor for tests or manual wiring.
+     */
+    public JsonRpcRouter(JsonRpcHandler<?, ?>... handlers) {
+        if (handlers != null) {
+            for (JsonRpcHandler<?, ?> h : handlers) {
+                if (h != null) {
+                    handlersByMethod.put(h.method(), h);
+                }
+            }
+        }
+    }
+
     @Inject
-    public JsonRpcRouter(List<JsonRpcHandler<?, ?>> handlers) {
+    public JsonRpcRouter(Instance<JsonRpcHandler<?, ?>> handlers) {
         for (JsonRpcHandler<?, ?> h : handlers) {
             handlersByMethod.put(h.method(), h);
         }
