@@ -1,0 +1,7 @@
+quarkus:
+  datasource:
+    devservices:
+      port: 5432
+  flyway:
+    enabled: true
+    migrate-at-start: true
