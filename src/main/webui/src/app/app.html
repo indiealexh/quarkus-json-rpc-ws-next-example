@@ -1,3 +1,29 @@
 
   <h1>Hello, nosignal</h1>
+
+  <form (ngSubmit)="onSubmit()" #f="ngForm" class="rpc-form" style="margin: 1rem 0; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+    <label for="msg">Message:</label>
+    <input id="msg" name="message" [(ngModel)]="message" required placeholder="Type your message" />
+
+    <label for="op">Operation:</label>
+    <select id="op" name="operation" [(ngModel)]="operation">
+      <option value="echo">Echo</option>
+      <option value="reverse">Reverse</option>
+    </select>
+
+    <button type="submit" [disabled]="loading || !message.trim()">Send</button>
+  </form>
+
+  @if (loading) {
+    <div class="loading">Loading...</div>
+  }
+
+  @if (!loading && result !== undefined) {
+    <div class="result">Result: {{ result }}</div>
+  }
+
+  @if (!loading && error) {
+    <div class="error" style="color: #b00020;">Error: {{ error }}</div>
+  }
+
   <router-outlet/>

@@ -22,10 +22,17 @@ export class JsonRpcClientService {
   private ws?: WebSocket;
   private defaultUrl: string;
   private idCounter = 0;
-  private pending = new Map<string | number, PendingRequest>();
+  private pending = new Map<string, PendingRequest>();
 
   private connectionState$ = new BehaviorSubject<ConnectionState>('idle');
   private notifications$ = new Subject<JsonRpcNotification>();
+
+  // Auto-reconnect state
+  private reconnectEnabled = true;
+  private reconnectDelay = 1000; // start with 1s
+  private readonly reconnectMaxDelay = 30000; // cap at 30s
+  private reconnectTimer?: any;
+  private lastUrl?: string;
 
   constructor(@Inject(JSON_RPC_WS_URL) defaultUrl: string) {
     this.defaultUrl = defaultUrl;
@@ -46,6 +53,14 @@ export class JsonRpcClientService {
   /** Connects to the WebSocket endpoint. If already connected to the same URL, no-op. */
   connect(url?: string): void {
     const target = url ?? this.defaultUrl;
+    this.lastUrl = target;
+
+    // enable reconnect attempts for explicit connects
+    this.reconnectEnabled = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
 
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       // If same URL, do nothing
@@ -55,7 +70,9 @@ export class JsonRpcClientService {
       } catch {
         // ignore
       }
-      this.close(1000, 'Reconnecting to different URL');
+      // Close existing before reconnecting to a different URL
+      try { this.ws.close(1000, 'Reconnecting to different URL'); } catch {}
+      this.ws = undefined;
     }
 
     this.connectionState$.next('connecting');
@@ -64,17 +81,30 @@ export class JsonRpcClientService {
 
     ws.onopen = () => {
       this.connectionState$.next('open');
+      // reset backoff on successful open
+      this.reconnectDelay = 1000;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = undefined;
+      }
     };
 
     ws.onclose = () => {
       this.connectionState$.next('closed');
-      // Reject all pending
-      this.pending.forEach((p) => p.reject(new Error('WebSocket closed')));
+      // Reject all pending and clear timeouts
+      this.pending.forEach((p) => {
+        try { if (p.timeoutId) clearTimeout(p.timeoutId); } catch {}
+        p.reject(new Error('WebSocket closed'));
+      });
       this.pending.clear();
+      this.ws = undefined;
+      this.scheduleReconnect();
     };
 
     ws.onerror = () => {
       this.connectionState$.next('error');
+      // let onclose handle the actual reconnect; if close doesn't arrive, schedule anyway
+      this.scheduleReconnect();
     };
 
     ws.onmessage = (evt: MessageEvent) => {
@@ -96,6 +126,12 @@ export class JsonRpcClientService {
 
   /** Gracefully closes the connection */
   close(code?: number, reason?: string): void {
+    // Disable auto-reconnect and clear any pending timer
+    this.reconnectEnabled = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
     if (this.ws) {
       try {
         this.ws.close(code, reason);
@@ -107,9 +143,15 @@ export class JsonRpcClientService {
   }
 
   /** Performs a JSON-RPC call and resolves with the result or rejects with an error */
-  call<T = any>(method: string, params?: Record<string, any>, timeoutMs = 15000): Promise<T> {
+  async call<T = any>(method: string, params?: Record<string, any>, timeoutMs = 15000): Promise<T> {
+    // Ensure connection is open; tolerate reconnects by waiting up to timeoutMs
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.connect(this.lastUrl ?? this.defaultUrl);
+      await this.waitForOpen(timeoutMs);
+    }
+
     const ws = this.ensureOpen();
-    const id = ++this.idCounter;
+    const id = (++this.idCounter).toString();
     const request: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
 
     return new Promise<T>((resolve, reject) => {
@@ -131,20 +173,36 @@ export class JsonRpcClientService {
     ws.send(JSON.stringify(notification));
   }
 
-  /** Waits for the connection to open before resolving */
-  waitForOpen(): Promise<void> {
+  /** Waits for the connection to open before resolving; keeps waiting across transient errors/closures */
+  waitForOpen(timeoutMs = 15000): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        sub.unsubscribe();
+        reject(new Error('Timed out waiting for WebSocket to open'));
+      }, timeoutMs);
+
       const sub = this.state$
-        .pipe(filter((s) => s === 'open' || s === 'closed' || s === 'error'))
-        .subscribe((s) => {
-          if (s === 'open') {
-            sub.unsubscribe();
-            resolve();
-          } else if (s === 'closed' || s === 'error') {
-            sub.unsubscribe();
-            reject(new Error('WebSocket is not open'));
-          }
+        .pipe(filter((s) => s === 'open'))
+        .subscribe(() => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          sub.unsubscribe();
+          resolve();
         });
+
+      // Fast path: if already open, resolve immediately
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          sub.unsubscribe();
+          resolve();
+        }
+      }
     });
   }
 
@@ -175,10 +233,11 @@ export class JsonRpcClientService {
     // Response path
     if ('jsonrpc' in msg && 'id' in msg && ('result' in msg || 'error' in msg)) {
       const response = msg as JsonRpcResponse;
-      const pending = this.pending.get(response.id as any);
+      const key = String((response as any).id);
+      const pending = this.pending.get(key);
       if (pending) {
         if ('result' in response) {
-          pending.resolve(response.result);
+          pending.resolve((response as any).result);
         } else {
           const err = response as JsonRpcErrorResponse;
           const error = new Error(err.error?.message ?? 'JSON-RPC error');
@@ -187,7 +246,7 @@ export class JsonRpcClientService {
           pending.reject(error);
         }
         if (pending.timeoutId) clearTimeout(pending.timeoutId);
-        this.pending.delete(response.id as any);
+        this.pending.delete(key);
       }
       return;
     }
@@ -199,5 +258,22 @@ export class JsonRpcClientService {
     }
 
     // Ignore anything else
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.reconnectEnabled) return;
+    if (this.ws) return; // already connected/connecting
+    const target = this.lastUrl ?? this.defaultUrl;
+    if (!target) return;
+    if (this.reconnectTimer) return;
+
+    const delay = this.reconnectDelay;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      if (!this.reconnectEnabled) return;
+      this.connect(target);
+      // Exponential backoff with cap
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.reconnectMaxDelay);
+    }, delay);
   }
 }
