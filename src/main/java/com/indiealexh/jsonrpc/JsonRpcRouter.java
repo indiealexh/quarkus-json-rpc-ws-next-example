@@ -8,7 +8,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.enterprise.inject.Instance;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,7 +46,7 @@ public class JsonRpcRouter {
     }
 
     /**
-     * Handle an incoming WebSocket JSON message as JSON-RPC 2.0.
+     * Handle an incoming WebSocket JSON message as JSON-RPC 2.0 (single request).
      * Returns a Uni of JSON string response or null for notifications.
      */
     public Uni<String> route(JsonObject message) {
@@ -96,6 +98,70 @@ public class JsonRpcRouter {
                 .onItem().transform(result -> buildSuccessJson(id, result))
                 .onFailure().recoverWithItem(t -> buildErrorJson(id, -32603, "Internal error", t == null ? null : t.toString()))
                 .onItem().transform(json -> isNotification ? null : json);
+    }
+
+    /**
+     * Handle a batch (array) of JSON-RPC 2.0 requests.
+     * - Empty array => single Invalid Request error object (spec compliant).
+     * - Notifications produce nulls which are filtered out; if all are notifications, returns null (no message).
+     */
+    public Uni<String> route(JsonArray messages) {
+        if (messages == null || messages.isEmpty()) {
+            // For an empty batch, the response is a single error object, not an array
+            return Uni.createFrom().item(buildErrorJson(null, -32600, "Invalid Request", null));
+        }
+
+        List<Uni<String>> unis = new ArrayList<>(messages.size());
+        for (int i = 0; i < messages.size(); i++) {
+            Object el = messages.getValue(i);
+            if (el instanceof JsonObject jo) {
+                unis.add(route(jo));
+            } else {
+                // Each non-object element in the batch yields an Invalid Request error object with null id
+                unis.add(Uni.createFrom().item(buildErrorJson(null, -32600, "Invalid Request", null)));
+            }
+        }
+
+        return Uni.combine().all().unis(unis).with(list -> {
+            List<String> nonNull = new ArrayList<>();
+            for (Object o : list) {
+                String s = (String) o;
+                if (s != null) nonNull.add(s);
+            }
+            if (nonNull.isEmpty()) {
+                // All were notifications => no response
+                return null;
+            }
+            JsonArray arr = new JsonArray();
+            for (String s : nonNull) {
+                // Each s is a JSON string of an object
+                arr.add(new JsonObject(s));
+            }
+            return arr.encode();
+        });
+    }
+
+    /**
+     * Parse a raw JSON string and route as single or batch.
+     */
+    public Uni<String> route(String text) {
+        if (text == null) {
+            return Uni.createFrom().item(buildErrorJson(null, -32700, "Parse error", null));
+        }
+        // Try object first
+        try {
+            JsonObject obj = new JsonObject(text);
+            return route(obj);
+        } catch (Throwable ignore) {
+            // not an object
+        }
+        try {
+            JsonArray arr = new JsonArray(text);
+            return route(arr);
+        } catch (Throwable ignore) {
+            // not an array either
+        }
+        return Uni.createFrom().item(buildErrorJson(null, -32700, "Parse error", null));
     }
 
     private Uni<String> respondError(boolean isNotification, Object id, int code, String message, Object data) {

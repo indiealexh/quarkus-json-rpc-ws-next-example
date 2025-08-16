@@ -4,7 +4,6 @@ import com.indiealexh.jsonrpc.JsonRpcRouter;
 import io.quarkus.websockets.next.OnTextMessage;
 import io.quarkus.websockets.next.WebSocket;
 import io.smallrye.mutiny.Uni;
-import io.vertx.core.json.JsonObject;
 import jakarta.inject.Inject;
 
 @WebSocket(path = "/api/ws")
@@ -14,7 +13,8 @@ public class WSService {
     JsonRpcRouter router;
 
     @OnTextMessage
-    Uni<String> consume(JsonObject message) {
+    Uni<String> consume(String message) {
+        // Accept either a single JSON-RPC object or a batch array encoded as a string
         return router.route(message);
     }
 }

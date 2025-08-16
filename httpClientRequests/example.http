@@ -1,0 +1,42 @@
+WEBSOCKET ws://localhost:8080/api/ws
+Content-Type: application/json
+
+// Single Echo
+{
+    "jsonrpc": "2.0",
+    "id": "0198b00a-2bc8-7e7c-ab12-5f818fff01cb",
+    "method": "echo",
+    "params": {
+        "message": "Hello you!"
+    }
+}
+===
+// Single Reverse
+{
+    "jsonrpc": "2.0",
+    "id": "0198b00e-0bf9-74e7-8354-ed28141077c7",
+    "method": "reverse",
+    "params": {
+        "message": "!uoy olleH"
+    }
+}
+===
+// Batch Request
+[
+    {
+        "jsonrpc": "2.0",
+        "id": "0198b012-c5a1-752f-8b43-72f89d25f8a8",
+        "method": "reverse",
+        "params": {
+            "message": "Strange"
+        }
+    },
+    {
+        "jsonrpc": "2.0",
+        "id": "0198b012-c5a1-7047-b34e-f32ee53b84d8",
+        "method": "reverse",
+        "params": {
+            "message": "Alice through the looking glass"
+        }
+    }
+]
