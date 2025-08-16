@@ -5,3 +5,8 @@ quarkus:
   flyway:
     enabled: true
     migrate-at-start: true
+  quinoa:
+    package-manager-install:
+      node-version: 22.15.1
+      npm-version: 11.4.0
+    enable-spa-routing: true
