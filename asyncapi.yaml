@@ -1,0 +1,237 @@
+asyncapi: 3.0.0
+info:
+  title: NoSignal Server WebSocket JSON-RPC API
+  version: 1.0.0
+  description: |
+    WebSocket API exposing JSON-RPC 2.0 methods over a single WebSocket endpoint.
+
+    - Endpoint: `/api/ws`
+    - Protocol: WebSocket
+    - Message format: JSON text messages using JSON-RPC 2.0 envelopes
+
+    Features and constraints:
+    - Supports single requests and batch requests (array of request objects)
+    - Notifications (requests without an `id`) are accepted and do not yield a response
+    - Only named (object) parameters are supported; positional (array) params are rejected with `-32602`
+    - Standard JSON-RPC error codes are used: `-32700`, `-32600`, `-32601`, `-32602`, `-32603`
+
+servers:
+  production:
+    host: your-domain.example.com
+    protocol: wss
+    description: Production WebSocket endpoint
+    pathname: /api/ws
+  local:
+    host: localhost:8080
+    protocol: ws
+    description: Local development WebSocket endpoint
+    pathname: /api/ws
+
+defaultContentType: application/json
+
+#tags:
+#  - name: jsonrpc
+#    description: JSON-RPC 2.0 over WebSocket
+
+channels:
+  /api/ws:
+    address: /api/ws
+    messages:
+      JsonRpcRequestMessage:
+        name: JsonRpcRequestMessage
+        title: JSON-RPC 2.0 Request
+        contentType: application/json
+        payload:
+          $ref: '#/components/schemas/JsonRpcRequest'
+      JsonRpcBatchMessage:
+        name: JsonRpcBatchMessage
+        title: JSON-RPC 2.0 Batch (array of requests)
+        contentType: application/json
+        payload:
+          type: array
+          items:
+            - $ref: '#/components/schemas/JsonRpcRequest'
+      JsonRpcResponseMessage:
+        name: JsonRpcResponseMessage
+        title: JSON-RPC 2.0 Response
+        contentType: application/json
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/JsonRpcSuccess'
+            - $ref: '#/components/schemas/JsonRpcErrorResponse'
+
+operations:
+  clientSends:
+    action: send
+    channel:
+      $ref: '#/channels/~1api~1ws'
+    messages:
+      - $ref: '#/channels/~1api~1ws/messages/JsonRpcRequestMessage'
+      - $ref: '#/channels/~1api~1ws/messages/JsonRpcBatchMessage'
+  serverSends:
+    action: receive
+    channel:
+      $ref: '#/channels/~1api~1ws'
+    messages:
+      - $ref: '#/channels/~1api~1ws/messages/JsonRpcResponseMessage'
+
+components:
+  schemas:
+    # JSON-RPC 2.0 base types
+    JsonRpcRequest:
+      type: object
+      required: [jsonrpc, method]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+          description: JSON-RPC protocol version; must be '2.0'.
+        id:
+          description: Identifier established by the Client. If omitted, the request is a notification and no response is sent.
+          oneOf:
+            - type: string
+            - type: integer
+            - type: 'null'
+        method:
+          type: string
+          description: Method name. Supported methods are `echo` and `reverse`.
+          examples: [echo, reverse]
+        params:
+          description: Named parameters (object). Positional (array) params are not supported.
+          oneOf:
+            - $ref: '#/components/schemas/EchoParams'
+            - $ref: '#/components/schemas/ReverseParams'
+            - type: object
+              description: Other method-specific parameter object (if more methods are added).
+      examples:
+        - jsonrpc: '2.0'
+          id: 1
+          method: echo
+          params:
+            message: "Hello"
+        - jsonrpc: '2.0'
+          id: 2
+          method: reverse
+          params:
+            message: "abc"
+        - jsonrpc: '2.0'
+          method: echo
+          params:
+            message: "This is a notification"
+
+    JsonRpcSuccess:
+      type: object
+      required: [jsonrpc, id, result]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: 'null'
+        result:
+          description: Method-specific successful result payload.
+          oneOf:
+            - $ref: '#/components/schemas/EchoResult'
+            - $ref: '#/components/schemas/ReverseResult'
+            - type: object
+              description: Other method-specific result object.
+      examples:
+        - jsonrpc: '2.0'
+          id: 1
+          result:
+            echo: "Hello"
+        - jsonrpc: '2.0'
+          id: 2
+          result:
+            reverse: "cba"
+
+    JsonRpcErrorResponse:
+      type: object
+      required: [jsonrpc, id, error]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: 'null'
+        error:
+          $ref: '#/components/schemas/JsonRpcErrorObject'
+      examples:
+        - jsonrpc: '2.0'
+          id: 1
+          error:
+            code: -32601
+            message: Method not found
+
+    JsonRpcErrorObject:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          enum: [-32700, -32600, -32601, -32602, -32603]
+          description: Standard JSON-RPC error code.
+        message:
+          type: string
+        data:
+          description: Optional additional information.
+
+    # Method-specific params and results
+    EchoParams:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+    EchoResult:
+      type: object
+      properties:
+        echo:
+          oneOf:
+            - type: string
+            - type: 'null'
+
+    ReverseParams:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+    ReverseResult:
+      type: object
+      properties:
+        reverse:
+          oneOf:
+            - type: string
+            - type: 'null'
+
+  messages:
+    JsonRpcRequestMessage:
+      name: JsonRpcRequestMessage
+      title: JSON-RPC 2.0 Request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/JsonRpcRequest'
+    JsonRpcBatchMessage:
+      name: JsonRpcBatchMessage
+      title: JSON-RPC 2.0 Batch (array of requests)
+      contentType: application/json
+      payload:
+        type: array
+        items:
+          - $ref: '#/components/schemas/JsonRpcRequest'
+    JsonRpcResponseMessage:
+      name: JsonRpcResponseMessage
+      title: JSON-RPC 2.0 Response
+      contentType: application/json
+      payload:
+        oneOf:
+          - $ref: '#/components/schemas/JsonRpcSuccess'
+          - $ref: '#/components/schemas/JsonRpcErrorResponse'
+

@@ -18,6 +18,10 @@ You can run your application in dev mode that enables live coding using:
 
 See `httpClientRequests/example.http` for examples of how to interact with the application.
 
+### AsyncAPI specification
+
+An AsyncAPI 3.0 document describing the WebSocket JSON-RPC API is available at `asyncapi.yaml`. You can view it using tools like the AsyncAPI Studio or the AsyncAPI CLI.
+
 ## Packaging and running the application
 
 The application can be packaged using:
