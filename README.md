@@ -14,7 +14,32 @@ You can run your application in dev mode that enables live coding using:
 
 > **_NOTE:_**  Quarkus now ships with a Dev UI, which is available in dev mode only at <http://localhost:8080/q/dev/>.
 
-## Interacting with the application
+## Features
+
+- WebSocket JSON-RPC 2.0 endpoint exposed at `/api/ws` (ws:// in dev, wss:// behind HTTPS)
+- Supported methods: `echo` and `reverse`
+- Angular Web UI (under `src/main/webui`) with a basic form to call `echo`/`reverse`
+- Client-side WebSocket JSON-RPC service that auto-connects on app start and automatically reconnects with exponential backoff
+- Clear loading, result, and error display in the UI
+
+## Accessing the Web UI
+
+1. Start the app in dev mode:
+   ```shell
+   ./mvnw quarkus:dev
+   ```
+2. Open the browser at: http://localhost:4200
+3. Use the form on the page:
+   - Type your message
+   - Choose the operation (Echo or Reverse)
+   - Click Send
+   - A "Loading..." indicator will appear, and then the result will be shown below the form
+
+Notes:
+- The Web UI’s JSON-RPC client derives the WebSocket endpoint from the current page origin: `ws(s)://<host>/api/ws`. When served over HTTPS it will use `wss://` automatically.
+- The default comes from an Angular InjectionToken provider. If you need to customize it, see `src/main/webui/src/app/jsonrpc/json-rpc.tokens.ts` and the provider wiring in `src/main/webui/src/app/app.config.ts`.
+
+## Interacting via HTTP client files
 
 See `httpClientRequests/example.http` for examples of how to interact with the application.
 
