@@ -1,8 +1,8 @@
-# nosignal-server
+# quarkus json-rpc WebSocket-next example
 
-This project uses Quarkus, the Supersonic Subatomic Java Framework.
+Quarkus Java Application Framework: <https://quarkus.io/>.
 
-If you want to learn more about Quarkus, please visit its website: <https://quarkus.io/>.
+Quarkus Websocket-next extension: <https://quarkus.io/guides/websockets-next-reference>
 
 ## Running the application in dev mode
 
@@ -13,6 +13,10 @@ You can run your application in dev mode that enables live coding using:
 ```
 
 > **_NOTE:_**  Quarkus now ships with a Dev UI, which is available in dev mode only at <http://localhost:8080/q/dev/>.
+
+## Interacting with the application
+
+See `httpClientRequests/example.http` for examples of how to interact with the application.
 
 ## Packaging and running the application
 
