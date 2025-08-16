@@ -5,7 +5,8 @@ export const JSON_RPC_WS_URL = new InjectionToken<string>('JSON_RPC_WS_URL');
 export function defaultJsonRpcWsUrlFactory(): string {
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = window.location.host; // includes hostname:port
+    // const host = window.location.host; // includes hostname:port
+    const host = "localhost:8080";
     return `${protocol}://${host}/api/ws`;
   }
   // Fallback for non-browser contexts

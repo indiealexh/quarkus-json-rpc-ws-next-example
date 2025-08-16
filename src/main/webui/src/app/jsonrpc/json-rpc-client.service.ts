@@ -8,6 +8,7 @@ import type {
   JsonRpcErrorResponse,
   JsonRpcNotification,
 } from './json-rpc.types';
+import { v7 as uuidv7 } from 'uuid';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
@@ -21,7 +22,6 @@ interface PendingRequest {
 export class JsonRpcClientService {
   private ws?: WebSocket;
   private defaultUrl: string;
-  private idCounter = 0;
   private pending = new Map<string, PendingRequest>();
 
   private connectionState$ = new BehaviorSubject<ConnectionState>('idle');
@@ -151,7 +151,7 @@ export class JsonRpcClientService {
     }
 
     const ws = this.ensureOpen();
-    const id = (++this.idCounter).toString();
+    const id = (uuidv7()).toString();
     const request: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
 
     return new Promise<T>((resolve, reject) => {
