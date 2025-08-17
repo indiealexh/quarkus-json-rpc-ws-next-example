@@ -24,7 +24,6 @@
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
-            "outputPath": "dist/nosignal",
             "assets": [
               {
                 "glob": "**/*",
