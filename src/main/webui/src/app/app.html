@@ -1,6 +1,16 @@
 
   <h1>Hello, nosignal</h1>
 
+  @let state = connectionState$ | async;
+  <div class="conn-status"
+       [class.online]="state === 'open'"
+       [class.connecting]="state === 'connecting'"
+       [class.offline]="state !== 'open' && state !== 'connecting'"
+       aria-live="polite">
+    <span class="conn-dot"></span>
+    <span class="conn-text">{{ state === 'open' ? 'Online' : (state === 'connecting' ? 'Connecting...' : 'Offline') }}</span>
+  </div>
+
   <form (ngSubmit)="onSubmit()" #f="ngForm" class="rpc-form" style="margin: 1rem 0; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
     <label for="msg">Message:</label>
     <input id="msg" name="message" [(ngModel)]="message" required placeholder="Type your message" />

@@ -1,16 +1,20 @@
-import { Component, ChangeDetectorRef } from '@angular/core';
+import { Component, ChangeDetectorRef, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { AsyncPipe } from '@angular/common';
 import { JsonRpcClientService } from './jsonrpc/json-rpc-client.service';
 
 @Component({
   selector: 'nosignal-root',
-  imports: [RouterOutlet, FormsModule],
+  imports: [RouterOutlet, FormsModule, AsyncPipe],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })
-export class App {
+export class App implements OnInit {
   protected title = 'nosignal';
+
+  // Expose connection state to the template via getter to avoid DI timing issues
+  public get connectionState$() { return this.jsonRpc.state$; }
 
   message = '';
   operation: 'echo' | 'reverse' = 'echo';
@@ -20,6 +24,11 @@ export class App {
 
   // Inject the JSON-RPC client; consumers can call connect() when needed.
   constructor(private readonly jsonRpc: JsonRpcClientService, private readonly cdr: ChangeDetectorRef) {}
+
+  ngOnInit(): void {
+    // Initiate the WebSocket connection so the status indicator reflects real-time state
+    this.jsonRpc.connect();
+  }
 
   async onSubmit(): Promise<void> {
     this.error = null;
