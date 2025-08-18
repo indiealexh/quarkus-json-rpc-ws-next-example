@@ -1,14 +1,9 @@
-import { Injectable, Inject } from '@angular/core';
-import { BehaviorSubject, Observable, Subject } from 'rxjs';
-import { filter, map } from 'rxjs/operators';
-import { JSON_RPC_WS_URL } from './json-rpc.tokens';
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  JsonRpcErrorResponse,
-  JsonRpcNotification,
-} from './json-rpc.types';
-import { v7 as uuidv7 } from 'uuid';
+import {Inject, Injectable} from '@angular/core';
+import {BehaviorSubject, Observable, Subject} from 'rxjs';
+import {filter, map} from 'rxjs/operators';
+import {JSON_RPC_WS_URL} from './json-rpc.tokens';
+import type {JsonRpcErrorResponse, JsonRpcNotification, JsonRpcResponse,} from './json-rpc.types';
+import {v7 as uuidv7} from 'uuid';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
@@ -18,11 +13,15 @@ interface PendingRequest {
   timeoutId?: any;
 }
 
-@Injectable({ providedIn: 'root' })
+@Injectable({providedIn: 'root'})
 export class JsonRpcClientService {
   private ws?: WebSocket;
   private defaultUrl: string;
   private pending = new Map<string, PendingRequest>();
+
+  // SharedWorker connection
+  private worker?: any;
+  private port?: any;
 
   private connectionState$ = new BehaviorSubject<ConnectionState>('idle');
   private notifications$ = new Subject<JsonRpcNotification>();
@@ -50,127 +49,140 @@ export class JsonRpcClientService {
     return this.notifications$.asObservable();
   }
 
-  /** Connects to the WebSocket endpoint. If already connected to the same URL, no-op. */
+  /** Connects to the WebSocket endpoint via SharedWorker. If already connected, sends connect to the worker. */
   connect(url?: string): void {
     const target = url ?? this.defaultUrl;
     this.lastUrl = target;
 
-    // enable reconnect attempts for explicit connects
-    this.reconnectEnabled = true;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = undefined;
-    }
-
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      // If same URL, do nothing
+    // Initialize the SharedWorker and port if needed
+    if (!this.worker || !this.port) {
       try {
-        const currentUrl = (this.ws as any).url as string | undefined;
-        if (currentUrl === target) return;
-      } catch {
-        // ignore
+        // Use module worker so it is bundled by Angular
+        this.worker = new SharedWorker(
+          new URL('./json-rpc.shared-worker', import.meta.url),
+          {name: 'nosignal_json-rpc-worker'}
+        );
+        this.port = this.worker.port;
+        this.port.start();
+        this.port.onmessage = (evt: MessageEvent) => {
+          const data: any = evt.data || {};
+          switch (data.type) {
+            case 'state':
+              this.connectionState$.next(data.state);
+              break;
+            case 'notification':
+              this.notifications$.next(data.message as JsonRpcNotification);
+              break;
+            case 'response': {
+              const key = String(data.id);
+              const pending = this.pending.get(key);
+              if (pending) {
+                try {
+                  if (pending.timeoutId) clearTimeout(pending.timeoutId);
+                } catch {
+                }
+                pending.resolve(data.result);
+                this.pending.delete(key);
+              }
+              break;
+            }
+            case 'responseError': {
+              const key = String(data.id);
+              const pending = this.pending.get(key);
+              if (pending) {
+                try {
+                  if (pending.timeoutId) clearTimeout(pending.timeoutId);
+                } catch {
+                }
+                const errObj = data.error || {};
+                const error = new Error(errObj.message || 'JSON-RPC error');
+                (error as any).code = errObj.code;
+                (error as any).data = errObj.data;
+                pending.reject(error);
+                this.pending.delete(key);
+              }
+              break;
+            }
+          }
+        };
+      } catch (e) {
+        // If SharedWorker creation fails, mark error state
+        this.connectionState$.next('error');
+        return;
       }
-      // Close existing before reconnecting to a different URL
-      try { this.ws.close(1000, 'Reconnecting to different URL'); } catch {}
-      this.ws = undefined;
     }
 
-    this.connectionState$.next('connecting');
-    const ws = new WebSocket(target);
-    this.ws = ws;
-
-    ws.onopen = () => {
-      this.connectionState$.next('open');
-      // reset backoff on successful open
-      this.reconnectDelay = 1000;
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = undefined;
-      }
-    };
-
-    ws.onclose = () => {
-      this.connectionState$.next('closed');
-      // Reject all pending and clear timeouts
-      this.pending.forEach((p) => {
-        try { if (p.timeoutId) clearTimeout(p.timeoutId); } catch {}
-        p.reject(new Error('WebSocket closed'));
-      });
-      this.pending.clear();
-      this.ws = undefined;
-      this.scheduleReconnect();
-    };
-
-    ws.onerror = () => {
+    // enable reconnect attempts at the worker by sending a connect message
+    try {
+      this.connectionState$.next('connecting');
+      this.port.postMessage({type: 'connect', url: target});
+    } catch {
       this.connectionState$.next('error');
-      // let onclose handle the actual reconnect; if close doesn't arrive, schedule anyway
-      this.scheduleReconnect();
-    };
-
-    ws.onmessage = (evt: MessageEvent) => {
-      const data = evt.data;
-      if (typeof data === 'string') {
-        this.handleIncomingString(data);
-      } else if (data instanceof Blob) {
-        data.text().then((text) => this.handleIncomingString(text)).catch(() => {/* ignore parse errors */});
-      } else if (data instanceof ArrayBuffer) {
-        try {
-          const text = new TextDecoder().decode(new Uint8Array(data));
-          this.handleIncomingString(text);
-        } catch {
-          // ignore
-        }
-      }
-    };
+    }
   }
 
-  /** Gracefully closes the connection */
+  /** Gracefully closes the connection via the SharedWorker */
   close(code?: number, reason?: string): void {
-    // Disable auto-reconnect and clear any pending timer
+    // Disable any local timers
     this.reconnectEnabled = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
-    if (this.ws) {
-      try {
-        this.ws.close(code, reason);
-      } catch {
-        // ignore
+    try {
+      if (this.port) {
+        this.port.postMessage({type: 'disconnect', code, reason});
       }
-      this.ws = undefined;
+    } catch {
+      // ignore
     }
   }
 
   /** Performs a JSON-RPC call and resolves with the result or rejects with an error */
   async call<T = any>(method: string, params?: Record<string, any>, timeoutMs = 15000): Promise<T> {
-    // Ensure connection is open; tolerate reconnects by waiting up to timeoutMs
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    // Ensure connection is open via the SharedWorker; tolerate reconnects by waiting up to timeoutMs
+    if (!this.port || this.connectionState$.getValue() !== 'open') {
       this.connect(this.lastUrl ?? this.defaultUrl);
       await this.waitForOpen(timeoutMs);
     }
 
-    const ws = this.ensureOpen();
     const id = (uuidv7()).toString();
-    const request: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
-
+    // Store pending before sending
     return new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`JSON-RPC call timeout for method ${method}`));
       }, timeoutMs);
 
-      this.pending.set(id, { resolve, reject, timeoutId });
+      this.pending.set(id, {resolve, reject, timeoutId});
 
-      ws.send(JSON.stringify(request));
+      try {
+        this.port!.postMessage({type: 'request', id, method, params});
+      } catch (e) {
+        const pending = this.pending.get(id);
+        if (pending && pending.timeoutId) {
+          try {
+            clearTimeout(pending.timeoutId);
+          } catch {
+          }
+        }
+        this.pending.delete(id);
+        reject(new Error('Failed to send request to worker'));
+      }
     });
   }
 
   /** Sends a JSON-RPC notification (no response expected) */
   notify(method: string, params?: Record<string, any>): void {
-    const ws = this.ensureOpen();
-    const notification: JsonRpcNotification = { jsonrpc: '2.0', method, params } as any;
-    ws.send(JSON.stringify(notification));
+    if (!this.port || this.connectionState$.getValue() !== 'open') {
+      throw new Error('Connection is not open. Call connect() first and wait for state to be open.');
+    }
+    const notification: JsonRpcNotification = {jsonrpc: '2.0', method, params} as any;
+    try {
+      this.port.postMessage({type: 'notify', method, params: notification.params});
+    } catch {
+      // ignore failures for notifications
+    }
   }
 
   /** Waits for the connection to open before resolving; keeps waiting across transient errors/closures */
@@ -195,7 +207,7 @@ export class JsonRpcClientService {
         });
 
       // Fast path: if already open, resolve immediately
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (this.connectionState$.getValue() === 'open') {
         if (!settled) {
           settled = true;
           clearTimeout(timer);
@@ -211,7 +223,7 @@ export class JsonRpcClientService {
       throw new Error('WebSocket is not open. Call connect() first and wait for state to be open.');
     }
     return this.ws;
-    }
+  }
 
   private handleIncomingString(raw: string): void {
     let parsed: any;
