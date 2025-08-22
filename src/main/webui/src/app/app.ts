@@ -3,10 +3,12 @@ import { RouterOutlet } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AsyncPipe } from '@angular/common';
 import { JsonRpcClientService } from './jsonrpc/json-rpc-client.service';
+import {Button} from 'primeng/button';
+import {InputText} from 'primeng/inputtext';
 
 @Component({
   selector: 'nosignal-root',
-  imports: [RouterOutlet, FormsModule, AsyncPipe],
+  imports: [RouterOutlet, FormsModule, AsyncPipe, Button, InputText],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })

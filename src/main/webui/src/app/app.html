@@ -13,7 +13,7 @@
 
   <form (ngSubmit)="onSubmit()" #f="ngForm" class="rpc-form" style="margin: 1rem 0; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
     <label for="msg">Message:</label>
-    <input id="msg" name="message" [(ngModel)]="message" required placeholder="Type your message" />
+    <input id="msg" name="message" pInputText [(ngModel)]="message" required placeholder="Type your message" />
 
     <label for="op">Operation:</label>
     <select id="op" name="operation" [(ngModel)]="operation">
@@ -21,7 +21,7 @@
       <option value="reverse">Reverse</option>
     </select>
 
-    <button type="submit" [disabled]="loading || !message.trim()">Send</button>
+    <p-button type="submit" [disabled]="loading || !message.trim()">Send</p-button>
   </form>
 
   @if (loading) {
